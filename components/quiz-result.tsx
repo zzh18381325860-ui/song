@@ -14,6 +14,9 @@ export function QuizResult({ song, onRestart }: QuizResultProps) {
   const [isRevealed, setIsRevealed] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
 
+  // 【修改 1/3】: 新增一个 state 来管理分享按钮的文本内容
+  const [buttonText, setButtonText] = useState("分享结果")
+
   useEffect(() => {
     const t1 = setTimeout(() => setIsRevealed(true), 400)
     const t2 = setTimeout(() => setShowDetails(true), 1400)
@@ -23,16 +26,40 @@ export function QuizResult({ song, onRestart }: QuizResultProps) {
     }
   }, [])
 
+  // 【修改 2/3】: 升级 handleShare 函数，增加复制后的用户反馈
   const handleShare = async () => {
-    const text = `我在「旧时光歌单测评」中的结果是：${song.artist}《${song.title}》！快来测测你和哪首古早流行曲最匹配！`
+    const shareData = {
+      title: "旧时光歌单测评",
+      text: `我在「旧时光歌单测评」中的结果是：${song.artist}《${song.title}》！`,
+      url: window.location.href, // 关键：分享当前页面的链接，让朋友可以点进来
+    }
+
+    // 尝试使用 Web Share API（原生分享）
     if (navigator.share) {
       try {
-        await navigator.share({ title: "旧时光歌单测评", text })
+        // 分享完整的标题、文本和链接
+        await navigator.share(shareData)
       } catch {
-        // cancelled
+        // 用户取消了分享，什么都不用做
       }
     } else {
-      await navigator.clipboard.writeText(text)
+      // 不支持原生分享，则降级为复制链接到剪贴板
+      try {
+        // 组合要复制的文本和链接
+        const textToCopy = `${shareData.text} 快来测测你和哪首古早流行曲最匹配！ ${shareData.url}`
+        await navigator.clipboard.writeText(textToCopy)
+        
+        // 【关键反馈】: 改变按钮文字提示用户已复制
+        setButtonText("链接已复制！")
+        
+        // 2秒后恢复按钮原来的文字
+        setTimeout(() => {
+          setButtonText("分享结果")
+        }, 2000)
+      } catch (err) {
+        // 如果复制也失败了，可以给个提示
+        alert("自动复制失败，请手动复制链接。")
+      }
     }
   }
 
@@ -187,13 +214,15 @@ export function QuizResult({ song, onRestart }: QuizResultProps) {
                 transform: showDetails ? "translateY(0)" : "translateY(15px)",
               }}
             >
+              {/* 【修改 3/3】: 更新分享按钮的文本和禁用状态 */}
               <button
                 onClick={handleShare}
                 type="button"
-                className="flex items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-6 py-3 text-xs tracking-[0.15em] text-accent transition-all duration-300 hover:bg-accent/20 hover:shadow-sm"
+                className="flex items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-6 py-3 text-xs tracking-[0.15em] text-accent transition-all duration-300 hover:bg-accent/20 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-70"
+                disabled={buttonText !== "分享结果"} // 当文本不是默认值时，禁用按钮
               >
                 <Share2 className="h-3.5 w-3.5" />
-                {"分享结果"}
+                {buttonText} {/* 显示动态的按钮文本 */}
               </button>
               <button
                 onClick={onRestart}
