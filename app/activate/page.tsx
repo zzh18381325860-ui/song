@@ -12,33 +12,34 @@ export default function ActivatePage() {
   const [isLoading, setIsLoading] = useState(false); // 控制按钮是否在加载中
   const router = useRouter();
 
-  // 当用户点击“激活”按钮时，这个函数会被调用
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault(); // 防止页面刷新
-    setError(''); // 清空上一次的错误信息
-    setIsLoading(true); // 显示加载状态
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  setError('');
+  setIsLoading(true);
 
-    // 使用 fetch 函数向我们“即将创建”的后端API发送请求
-    const res = await fetch('/api/activate', {
-      method: 'POST', // 使用 POST 方法
-      headers: { 'Content-Type': 'application/json' }, // 告诉服务器我们发送的是 JSON 数据
-      body: JSON.stringify({ code }), // 将用户输入的激活码打包成 JSON
-    });
+  const res = await fetch('/api/activate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
 
-    setIsLoading(false); // 结束加载状态
+  setIsLoading(false);
 
-    if (res.ok) {
-      // 如果服务器返回成功 (状态码 200)
-      alert('激活成功！即将跳转到主页。');
-      router.push('/'); // 跳转到网站主页
-      //router.refresh(); 
-// 刷新页面以确保中间件重新验证
-    } else {
-      // 如果服务器返回失败
-      const { message } = await res.json(); // 读取服务器返回的错误信息
-      setError(message || '激活失败，请检查你的激活码或网络连接。');
-    }
-  };
+  if (res.ok) {
+    // 激活成功！
+    
+    // --- 【核心修改】 ---
+    // 不要立即跳转，而是使用 setTimeout 创建一个微小的延迟。
+    // 这几十毫秒对于用户是无感的，但对于浏览器处理 Cookie 至关重要。
+    setTimeout(() => {
+      router.push('/');
+    }, 100); // 延迟 100 毫秒
+
+  } else {
+    const data = await res.json();
+    setError(data.message || '激活失败，请检查你的激活码或网络连接。');
+  }
+};
 
   // 这是页面的 HTML 结构 (使用 JSX 语法)
   return (
