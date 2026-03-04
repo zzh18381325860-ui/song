@@ -31,7 +31,8 @@ export default function ActivatePage() {
       // 如果服务器返回成功 (状态码 200)
       alert('激活成功！即将跳转到主页。');
       router.push('/'); // 跳转到网站主页
-      router.refresh(); // 刷新页面以确保中间件重新验证
+      //router.refresh(); 
+// 刷新页面以确保中间件重新验证
     } else {
       // 如果服务器返回失败
       const { message } = await res.json(); // 读取服务器返回的错误信息
