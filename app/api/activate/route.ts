@@ -1,91 +1,61 @@
-// 文件路径: app/api/activate/route.ts
-
-
+import { NextRequest, NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { cookies } from 'next/headers';
-import { NextRequest, NextResponse } from 'next/server';
+import { v4 as uuidv4 } from 'uuid';
 
-// 为了代码更清晰，我们先定义一下存储在数据库里的数据长什么样
-interface LicenseData {
-  totalUses: number; // 总共允许激活的次数
-  usedBy: string[];    // 一个数组，用来存放已经激活过的设备ID
-}
-
-// 我们只接受 POST 方法的请求，因为激活是一个会改变数据的操作
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    // 1. 从前端发来的请求中解析出 JSON 数据，主要是 'code' 字段
-    const { code } = await req.json();
+    const { code } = await request.json();
 
-    // 基础验证：确保前端真的传了激活码过来
-    if (!code || typeof code !== 'string') {
-      return NextResponse.json({ message: '激活码不能为空。' }, { status: 400 }); // Bad Request
+    if (!code) {
+      return NextResponse.json({ message: '激活码不能为空' }, { status: 400 });
     }
 
-    // 2. 使用激活码作为 key，去 Vercel KV 数据库查询对应的数据
-    const license = await kv.get<LicenseData>(code);
-    // --- 重要的调试步骤 ---
-    // 把从 KV 获取的原始数据打印到你的开发服务器终端
-    console.log('从KV获取的原始license数据:', license); 
-    if (license) {
-        console.log('totalUses 的值:', license.totalUses, '类型是:', typeof license.totalUses);
-        console.log('usedBy 的值:', license.usedBy, 'usedBy是否是数组:', Array.isArray(license.usedBy));
-    }
-    // --- 调试结束 ---
+    const key = `code:${code}`;
+    const storedCode: { usedBy: string[] } | null = await kv.get(key);
 
-    // 3. 验证激活码是否存在
-    if (!license) {
-      // 如果数据库里查不到这个码，说明是无效的
-      return NextResponse.json({ message: '无效的激活码。' }, { status: 404 }); // Not Found
+    if (!storedCode) {
+      return NextResponse.json({ message: '激活码无效' }, { status: 404 });
     }
 
-    // 4. 验证激活次数是否已用完
-    // license.usedBy.length 是已经激活的设备数量
-    // license.totalUses 是我们设定的总次数 (比如 3)
-    if (license.usedBy.length >= license.totalUses) {
-      return NextResponse.json({ message: '此激活码的使用次数已达上限。' }, { status: 403 }); // Forbidden
+    // 注意：这里检查的是 usedBy 数组是否存在且长度大于0
+    if (storedCode.usedBy && storedCode.usedBy.length > 0) {
+      // 这里的日志可以看到 usedBy 的值，方便调试
+      console.log(`激活码 ${code} 已被使用，使用者ID:`, storedCode.usedBy);
+      return NextResponse.json({ message: '此激活码已被使用' }, { status: 403 });
     }
 
-    // --- 所有验证通过，开始执行激活操作 ---
+    // 生成一个独一无二的会话ID (Session ID)
+    const sessionId = uuidv4();
+    // 【关键】这就是我们要在数据库里存的“通行证”的键名
+    const sessionKey = `session:${sessionId}`;
 
-    // 5. 为这台设备生成一个独一无二的ID
-    // crypto.randomUUID() 是一个标准的、安全的生成唯一ID的方法
-    const deviceId = crypto.randomUUID();
+    const pipeline = kv.pipeline();
+    // 在 KV 中创建“通行证”，键是 sessionKey，值为一个包含原始激活码的对象，有效期30天
+    pipeline.set(sessionKey, { activatedWithCode: code }, { ex: 60 * 60 * 24 * 30 });
+    // 更新激活码记录，标记它已经被这个 sessionID 使用了
+    pipeline.set(key, { ...storedCode, usedBy: [sessionId] });
+    await pipeline.exec();
 
-    // 6. 准备要存回数据库的新数据
-    // 我们在原有的 usedBy 数组里，加上这次新生成的 deviceId
-    const newLicenseData: LicenseData = {
-      ...license,
-      usedBy: [...license.usedBy, deviceId]
-    };
-    
-    // 7. 将更新后的数据写回 Vercel KV 数据库
-    // kv.set 是原子操作，能保证数据写入的完整性
-      await kv.set(code, newLicenseData);
-      await kv.set(`device:${deviceId}`, 'active', { ex: 60 * 60 * 24 * 365 }); // 设置一个和cookie差不多的过期时间
+    console.log(`激活成功！为用户创建了 session: ${sessionId}`);
 
+    // 【关键】将 sessionID 设置到浏览器的 Cookie 中
+    cookies().set('auth_session', sessionId, {
+      httpOnly: true, // 防止客户端JS脚本读取，更安全
+      secure: process.env.NODE_ENV === 'production', // 仅在生产环境的HTTPS下发送
+      path: '/', // Cookie 在整个网站都可用
+      sameSite: 'lax', // 防止CSRF攻击
+      maxAge: 60 * 60 * 24 * 30, // Cookie有效期30天，与KV中的记录保持一致
+      // 【关键】明确指定主域名，确保 www 子域和根域都能共享此Cookie
+      domain: process.env.VERCEL_ENV === 'production' 
+        ? '.song-one-sage.xyz' // 注意前面的点.
+        : undefined // 在本地开发时 (localhost)，不需要设置 domain
+    });
 
-    // 8. 颁发“通行证”！
-    // 我们将刚才生成的 deviceId 作为一个安全的 Cookie 存入用户的浏览器
-  // 这是 Edge 运行时兼容的写法
-// 1. 先准备好要返回的 JSON 响应
-const response = NextResponse.json({ message: '激活成功！' }, { status: 200 });
-
-// 2. 在这个响应对象上设置 Cookie
-response.cookies.set('auth_session', deviceId, {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  path: '/',
-  sameSite: 'lax',
-  maxAge: 60 * 60 * 24 * 365,
-});
-
-// 3. 返回这个携带了 Cookie 的响应对象
-return response;
+    return NextResponse.json({ success: true }, { status: 200 });
 
   } catch (error) {
-    // 如果过程中出现任何预料之外的错误，捕获它并返回一个服务器错误信息
     console.error('激活 API 出错:', error);
-    return NextResponse.json({ message: '服务器内部错误，请稍后再试。' }, { status: 500 });
+    return NextResponse.json({ message: '服务器内部错误' }, { status: 500 });
   }
 }
