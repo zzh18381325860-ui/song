@@ -64,4 +64,11 @@ export async function POST(request: NextRequest) {
         : undefined
     });
 
-    return NextResponse
+    return NextResponse.json({ success: true }, { status: 200 });
+
+} catch (error) {
+console.error('激活 API 出错:', error);
+// 这里的通用错误信息只会在意想不到的情况下触发
+return NextResponse.json({ message: '服务器内部错误' }, { status: 500 });
+}
+}
