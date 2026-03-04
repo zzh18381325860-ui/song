@@ -1,65 +1,88 @@
-// 文件路径: app/activate/page.tsx
+'use client';
 
-'use client'; // 这一行非常重要！它告诉 Next.js 这是一个与用户交互的“客户端组件”
-
-import { useState } from 'react';
+import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 
 export default function ActivatePage() {
-  // 这三个变量用来管理页面的状态
-  const [code, setCode] = useState(''); // 存储用户输入的激活码
-  const [error, setError] = useState(''); // 存储激活失败时的错误信息
-  const [isLoading, setIsLoading] = useState(false); // 控制按钮是否在加载中
+  const [code, setCode] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-  setError('');
-  setIsLoading(true);
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError(null);
 
-  const res = await fetch('/api/activate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code }),
-  });
+    if (!code.trim()) {
+      setError('激活码不能为空');
+      setIsLoading(false);
+      return;
+    }
 
-  setIsLoading(false);
+    try {
+      const response = await fetch('/api/activate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ code }),
+      });
 
-  if (res.ok) {
-    // 激活成功！
-    
-    // --- 【核心修改】 ---
-    // 不要立即跳转，而是使用 setTimeout 创建一个微小的延迟。
-    // 这几十毫秒对于用户是无感的，但对于浏览器处理 Cookie 至关重要。
-    setTimeout(() => {
-      router.push('/');
-    }, 100); // 延迟 100 毫秒
+      if (response.ok) {
+        // 激活成功！
+        // 可以直接刷新页面，让中间件重新验证并跳转到主页
+        // 或者使用 router.push('/') 跳转，效果相同
+        alert('激活成功！即将跳转到主页。');
+        window.location.href = '/'; // 采用最直接的页面重载方式
+      } else {
+        // 激活失败，显示服务器返回的错误信息
+        const data = await response.json();
+        setError(data.message || '发生未知错误');
+      }
+    } catch (err) {
+      console.error('激活请求失败:', err);
+      setError('无法连接到服务器，请检查您的网络连接。');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-  } else {
-    const data = await res.json();
-    setError(data.message || '激活失败，请检查你的激活码或网络连接。');
-  }
-};
-
-  // 这是页面的 HTML 结构 (使用 JSX 语法)
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', flexDirection: 'column', background: '#f0f2f5' }}>
-      <div style={{ padding: '40px', background: 'white', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-        <h1 style={{ textAlign: 'center', marginBottom: '24px', color: '#333333' }}>激活您的访问权限</h1>
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', flexDirection: 'column', fontFamily: 'sans-serif' }}>
+      <div style={{ width: '320px', padding: '2rem', border: '1px solid #ccc', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+        <h1 style={{ textAlign: 'center', marginBottom: '1.5rem', fontSize: '1.5rem' }}>服务激活</h1>
+        <form onSubmit={handleSubmit}>
           <input
             type="text"
             value={code}
             onChange={(e) => setCode(e.target.value)}
             placeholder="请输入您的激活码"
             disabled={isLoading}
-            style={{ padding: '12px', fontSize: '16px', width: '300px', border: '1px solid #ccc', borderRadius: '4px', color: '#333333' }}
+            style={{ width: '100%', padding: '0.75rem', fontSize: '1rem', boxSizing: 'border-box', marginBottom: '1rem', borderRadius: '4px', border: '1px solid #ccc' }}
           />
-          <button type="submit" disabled={isLoading} style={{ padding: '12px', fontSize: '16px', color: 'white', background: '#0070f3', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+          <button
+            type="submit"
+            disabled={isLoading}
+            style={{
+              width: '100%',
+              padding: '0.75rem',
+              fontSize: '1rem',
+              color: 'white',
+              backgroundColor: isLoading ? '#999' : '#0070f3',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}
+          >
             {isLoading ? '正在激活...' : '立即激活'}
           </button>
         </form>
-        {error && <p style={{ color: 'red', marginTop: '16px', textAlign: 'center' }}>{error}</p>}
+        {error && (
+          <p style={{ color: 'red', textAlign: 'center', marginTop: '1rem' }}>
+            {error}
+          </p>
+        )}
       </div>
     </div>
   );
