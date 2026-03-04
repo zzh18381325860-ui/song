@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { cookies } from 'next/headers';
 
+// 【【【 决定性的一行代码 】】】
+// 明确告诉 Vercel 在 Edge Runtime 环境中运行此 API
+export const runtime = 'edge';
+
 // 定义激活码在数据库中存储的结构类型
 interface ActivationCodeInfo {
   totalUses: number;
@@ -18,7 +22,7 @@ export async function POST(request: NextRequest) {
 
     const key = code;
     
-    // 【修正】kv.get 会自动解析 JSON，直接接收对象，不再需要 JSON.parse()
+    // kv.get 会自动解析 JSON，直接接收对象
     const storedCodeInfo: ActivationCodeInfo | null = await kv.get(key);
 
     if (storedCodeInfo === null) {
@@ -27,7 +31,6 @@ export async function POST(request: NextRequest) {
 
     // 直接对获取到的对象进行逻辑判断
     if (storedCodeInfo.usedBy.length >= storedCodeInfo.totalUses) {
-      console.log(`激活码 ${code} 已达到使用上限 ${storedCodeInfo.totalUses} 次。`);
       return NextResponse.json({ message: '此激活码的使用次数已耗尽' }, { status: 403 });
     }
 
@@ -43,14 +46,9 @@ export async function POST(request: NextRequest) {
 
     // 使用 pipeline 保证原子操作
     const pipeline = kv.pipeline();
-    // 写入新会话
     pipeline.set(sessionKey, { activatedWithCode: code }, { ex: 60 * 60 * 24 * 30 });
-    // 【修正】kv.set 也能自动处理对象，无需手动 stringify
-    pipeline.set(key, updatedCodeInfo);
-    
+    pipeline.set(key, updatedCodeInfo); // kv.set 也能自动处理对象
     await pipeline.exec();
-
-    console.log(`激活成功！激活码 ${code} 已被使用，为用户创建了 session: ${sessionId}`);
 
     // 在用户浏览器中设置 cookie
     cookies().set('auth_session', sessionId, {
