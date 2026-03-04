@@ -18,16 +18,14 @@ export async function POST(request: NextRequest) {
 
     const key = code;
     
-    // 【重大修正】kv.get 会自动解析 JSON，所以我们直接获取对象！
-    // 不再需要 JSON.parse()
+    // 【修正】kv.get 会自动解析 JSON，直接接收对象，不再需要 JSON.parse()
     const storedCodeInfo: ActivationCodeInfo | null = await kv.get(key);
 
     if (storedCodeInfo === null) {
       return NextResponse.json({ message: '激活码无效' }, { status: 404 });
     }
 
-    // 【重大修正】因为上面已经拿到了对象，所以不再需要 try-catch 解析块
-    // 直接进行逻辑判断
+    // 直接对获取到的对象进行逻辑判断
     if (storedCodeInfo.usedBy.length >= storedCodeInfo.totalUses) {
       console.log(`激活码 ${code} 已达到使用上限 ${storedCodeInfo.totalUses} 次。`);
       return NextResponse.json({ message: '此激活码的使用次数已耗尽' }, { status: 403 });
@@ -43,16 +41,18 @@ export async function POST(request: NextRequest) {
       usedBy: [...storedCodeInfo.usedBy, sessionId],
     };
 
+    // 使用 pipeline 保证原子操作
     const pipeline = kv.pipeline();
+    // 写入新会话
     pipeline.set(sessionKey, { activatedWithCode: code }, { ex: 60 * 60 * 24 * 30 });
-    
-    // 【优化】kv.set 也能自动处理对象，无需手动 stringify
+    // 【修正】kv.set 也能自动处理对象，无需手动 stringify
     pipeline.set(key, updatedCodeInfo);
     
     await pipeline.exec();
 
     console.log(`激活成功！激活码 ${code} 已被使用，为用户创建了 session: ${sessionId}`);
 
+    // 在用户浏览器中设置 cookie
     cookies().set('auth_session', sessionId, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -66,9 +66,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true }, { status: 200 });
 
-} catch (error) {
-console.error('激活 API 出错:', error);
-// 这里的通用错误信息只会在意想不到的情况下触发
-return NextResponse.json({ message: '服务器内部错误' }, { status: 500 });
-}
+  } catch (error) {
+    console.error('激活 API 出错:', error);
+    // 这个 catch 块现在只会在发生意想不到的严重错误时触发
+    return NextResponse.json({ message: '服务器内部错误，请联系管理员' }, { status: 500 });
+  }
 }
