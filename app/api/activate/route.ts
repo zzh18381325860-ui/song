@@ -39,11 +39,11 @@ export async function POST(request: NextRequest) {
     };
 
     const pipeline = kv.pipeline();
-    // 注意：这里是数据库中 session 记录的有效期，可以保持长一点，没关系
     pipeline.set(sessionKey, { activatedWithCode: code }, { ex: 60 * 60 * 24 * 30 });
     pipeline.set(key, updatedCodeInfo);
     await pipeline.exec();
 
+    // 【【【 核心修正 】】】
     // 1. 创建一个成功的响应对象
     const response = NextResponse.json({ success: true });
 
@@ -53,9 +53,7 @@ export async function POST(request: NextRequest) {
       secure: process.env.NODE_ENV === 'production',
       path: '/',
       sameSite: 'lax',
-      // 【【【 方案二修改点 】】】
-      // 设置 Cookie 在 5 分钟后过期
-      maxAge: 60 * 5, 
+      maxAge: 60 * 5, // 30 天
       domain: process.env.VERCEL_ENV === 'production' 
         ? '.song-one-sage.xyz' 
         : undefined
